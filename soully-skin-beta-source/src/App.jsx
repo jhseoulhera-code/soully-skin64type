@@ -138,6 +138,16 @@ export default function App(){
   const [pageIndex,setPageIndex]=useState(0)
   const [intermission,setIntermission]=useState(null) // null | one of DEEP_INTERMISSIONS | RESULT_CALC_MESSAGE
   const [answers,setAnswers]=useState({})
+  // Set of q.text keys already answered in QUICK 16, captured once at the
+  // moment "이어서 DEEP 64 진행하기" is clicked. While set, the DEEP page
+  // list is built only from the remaining, not-yet-answered questions, so a
+  // question already solved in QUICK never appears again in a DEEP page —
+  // instead of the old behavior of jumping to the first page that still had
+  // *any* unanswered question, which could mix already-answered questions
+  // (pre-filled) into the same page as new ones. Cleared (null) for a fresh
+  // DEEP run, so a brand-new DEEP test still shows every one of its
+  // questions once, in original order.
+  const [continueQuickKeys,setContinueQuickKeys]=useState(null)
   const [showInsight,setShowInsight]=useState(false)
   const [contactMethod,setContactMethod]=useState('kakao')
   const [contactValue,setContactValue]=useState('')
@@ -190,10 +200,13 @@ export default function App(){
   // DEEP-only: the same activeQuestions list (56 questions, fixed array
   // order — TYPE axis blocks, then STATE, then the validation question
   // last) sliced into pages of 4 regardless of chapter boundaries.
-  const deepPages = useMemo(
-    () => mode==='deep' ? chunk(activeQuestions,4) : [],
-    [mode, activeQuestions]
-  )
+  const deepPages = useMemo(() => {
+    if(mode!=='deep') return []
+    const pool = continueQuickKeys
+      ? activeQuestions.filter(q=>!continueQuickKeys.has(q.text))
+      : activeQuestions
+    return chunk(pool,4)
+  }, [mode, activeQuestions, continueQuickKeys])
   const deepCurrentQs = deepPages[pageIndex] || []
   // A multiSelect question (currently only the validation question) stores
   // an array of chosen option indices in `answers[q.text]` instead of a
@@ -524,20 +537,22 @@ export default function App(){
             <button className="cta purple" onClick={()=>{
               // Keep existing answers — questions shared between QUICK and
               // DEEP carry the same q.text key, so they land pre-filled.
-              // Jump straight into the test screen at the first page that
-              // still has an unanswered question, skipping the journey
-              // intro (redundant for someone who already started).
-              const deepQs = questions.filter(q=>q.modes.includes('deep'))
-              const pages = chunk(deepQs,4)
+              // Freeze the set of already-answered question keys so DEEP's
+              // pages are built only from what's left — a question already
+              // solved in QUICK never shows up again — and start at the
+              // first (now page 0) of those remaining pages, skipping the
+              // journey intro (redundant for someone who already started).
               const isAnsweredIn = q => q.multiSelect
                 ? Array.isArray(answers[q.text]) && answers[q.text].length>0
                 : answers[q.text]!==undefined
-              let target = pages.findIndex(page=>page.some(q=>!isAnsweredIn(q)))
-              if(target===-1) target=0
-              setChapterIndex(0);setBatchIndex(0);setPageIndex(target);setIntermission(null);setMode('deep');setScreen('test')
+              const solvedKeys = new Set(
+                questions.filter(q=>q.modes.includes('deep') && isAnsweredIn(q)).map(q=>q.text)
+              )
+              setContinueQuickKeys(solvedKeys)
+              setChapterIndex(0);setBatchIndex(0);setPageIndex(0);setIntermission(null);setMode('deep');setScreen('test')
             }}>이어서 DEEP 64 진행하기</button>
             <button className="cta-secondary" onClick={()=>{
-              setAnswers({});setChapterIndex(0);setBatchIndex(0);setPageIndex(0);setIntermission(null);setMode('deep');setScreen('journey')
+              setAnswers({});setContinueQuickKeys(null);setChapterIndex(0);setBatchIndex(0);setPageIndex(0);setIntermission(null);setMode('deep');setScreen('journey')
             }}>처음부터 새로 하기</button>
           </div>
         </div>}
@@ -603,7 +618,7 @@ export default function App(){
         </div>}
 
         <button className="cta purple" onClick={()=>{
-          setAnswers({});setChapterIndex(0);setBatchIndex(0);setPageIndex(0);setIntermission(null);setScreen('landing');setMode(null)
+          setAnswers({});setContinueQuickKeys(null);setChapterIndex(0);setBatchIndex(0);setPageIndex(0);setIntermission(null);setScreen('landing');setMode(null)
           setContactValue('');setConsent(false);setLeadStatus('')
           setShow64Gate(false);setShowDetailed64Type(false);setSubmitting(false);submittingRef.current=false
         }}>처음부터 다시 하기</button>
